@@ -60,7 +60,7 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           context: .
-          dockerfile: ./docker/django/Dockerfile
+          file: ./docker/django/Dockerfile
           push: true
           tags: ${{ secrets.DOCKER_USERNAME }}/foodgram_backend:latest
 
@@ -82,7 +82,7 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           context: .
-          dockerfile: ./docker/frontend/Dockerfile
+          file: ./docker/frontend/Dockerfile
           push: true
           tags: ${{ secrets.DOCKER_USERNAME }}/foodgram_frontend:latest
   build_gateway_and_push_to_docker_hub:
@@ -103,7 +103,7 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           context: .
-          dockerfile: ./docker/nginx/Dockerfile
+          file: ./docker/nginx/Dockerfile
           push: true
           tags: ${{ secrets.DOCKER_USERNAME }}/foodgram_nginx:latest
   deploy:
