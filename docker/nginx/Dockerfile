@@ -1,8 +1,3 @@
 # build env
-FROM node:13.12.0-alpine as build
-WORKDIR /app
-COPY ../../frontend/package*.json ./
-RUN npm install
-COPY ../../frontend/. ./
-RUN npm run build
-CMD cp -r build result_build
+FROM nginx:1.22.1
+COPY /docker/nginx/nginx.conf /etc/nginx/conf.d/default.conf
