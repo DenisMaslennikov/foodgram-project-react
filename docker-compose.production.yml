@@ -28,7 +28,7 @@ services:
   gateway:
     image: ktotom7/foodgram_nginx
     ports:
-      - 8001:80
+      - 8002:80
     volumes:
       - static:/static
       - media:/media

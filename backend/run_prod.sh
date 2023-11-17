@@ -6,5 +6,5 @@ python /code/manage.py collectstatic --noinput
 
 cp -r /static/django/. /static/
 
-gunicorn --config python:gunicorn_config server.wsgi
+gunicorn --config python:gunicornconfig server.wsgi
 
