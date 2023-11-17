@@ -42,7 +42,7 @@ jobs:
         cd backend
 
   build_backend_and_push_to_docker_hub:
-    name: Push Docker image to DockerHub
+    name: Push backend image to DockerHub
     runs-on: ubuntu-latest
     needs: backend_tests
     if: github.ref == 'refs/heads/master'
@@ -59,7 +59,7 @@ jobs:
       - name: Push to DockerHub
         uses: docker/build-push-action@v4
         with:
-          context: ./backend/
+          context: ./docker/django/
           push: true
           tags: ${{ secrets.DOCKER_USERNAME }}/foodgram_backend:latest
 
@@ -80,7 +80,7 @@ jobs:
       - name: Push to DockerHub
         uses: docker/build-push-action@v4
         with:
-          context: ./frontend/
+          context: ./docker/frontend/
           push: true
           tags: ${{ secrets.DOCKER_USERNAME }}/foodgram_frontend:latest
   build_gateway_and_push_to_docker_hub:
@@ -100,7 +100,8 @@ jobs:
       - name: Push to DockerHub
         uses: docker/build-push-action@v4
         with:
-          context: ./docker/nginx/
+          context: .
+          dockerfile: ./docker/ngnix/Dokerfile
           push: true
           tags: ${{ secrets.DOCKER_USERNAME }}/foodgram_nginx:latest
   deploy:
