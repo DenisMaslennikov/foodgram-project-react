@@ -1,7 +1,8 @@
 from django.db import models
 
-from app.core.models import BaseModelMixin
 from pytils.translit import slugify
+
+from app.core.models import BaseModelMixin
 
 
 class Tag(BaseModelMixin):

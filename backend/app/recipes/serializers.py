@@ -9,11 +9,12 @@ from django.db import transaction
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
-from .models import IngredientsRecipes, Recipe
 from app.ingredients.models import Ingredient
 from app.tags.models import Tag
 from app.tags.serializers import TagSerializer
 from app.users.serializers import UserSerializer
+
+from .models import IngredientsRecipes, Recipe
 
 
 class Base64ImageField(serializers.FileField):

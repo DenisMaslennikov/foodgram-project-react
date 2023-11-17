@@ -1,6 +1,7 @@
-from app.recipes.models import Recipe
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
+
+from app.recipes.models import Recipe
 
 
 class IsAuthorOrReadOnly(BasePermission):

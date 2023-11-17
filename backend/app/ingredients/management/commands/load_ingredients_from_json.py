@@ -1,8 +1,9 @@
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from app.ingredients.models import Ingredient, MeasurementUnit
 from orjson import loads
+
+from app.ingredients.models import Ingredient, MeasurementUnit
 
 
 class Command(BaseCommand):

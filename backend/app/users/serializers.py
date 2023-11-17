@@ -12,7 +12,6 @@ from rest_framework.validators import UniqueValidator
 
 from app.recipes.models import Recipe
 
-
 User = get_user_model()
 
 

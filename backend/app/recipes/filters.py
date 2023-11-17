@@ -1,7 +1,8 @@
 from django.db.models import QuerySet
 
-from app.tags.models import Tag
 from django_filters import FilterSet, filters
+
+from app.tags.models import Tag
 
 from .models import Recipe
 

@@ -22,14 +22,12 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
+from app.users.serializers import ShortRecipeSerializer
+
 from .filters import RecipeFilterSet
 from .models import Favorite, Recipe, ShoppingCart
 from .permissions import IsAuthorOrReadOnly
-from .serializers import (
-    RecipeReadSerializer,
-    RecipeWriteSerializer,
-)
-from app.users.serializers import ShortRecipeSerializer
+from .serializers import RecipeReadSerializer, RecipeWriteSerializer
 
 PDF_INDENT = 72
 PDF_TITLE_FONT_SIZE = 15
