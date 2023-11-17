@@ -5,3 +5,5 @@ ENV PYTHONDONTWRITEBYTECODE=1\
 RUN pip install --upgrade pip
 COPY ../../backend/requirements.txt .
 RUN pip install -r requirements.txt
+COPY ../../backend .
+
