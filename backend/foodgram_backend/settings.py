@@ -41,7 +41,7 @@ if DEBUG:
     INTERNAL_IPS += [ip[:-1] + '1']
 
 
-ALLOWED_HOSTS = ['app', '127.0.0.1']
+ALLOWED_HOSTS = ['app', '127.0.0.1', 'foodgram-diplom.ddns.net']
 
 
 # Application definition
