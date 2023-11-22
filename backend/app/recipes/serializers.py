@@ -5,7 +5,7 @@ from typing import Any
 
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
-from django.db import transaction
+from django.db import models, transaction
 
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
@@ -16,7 +16,7 @@ from app.tags.serializers import TagSerializer
 from app.users.serializers import ShortRecipeSerializer, UserSerializer
 from foodgram_backend.constants import MIN_COOKING_TIME, MIN_INGREDIENT_AMOUNT
 
-from .models import IngredientsRecipes, Recipe
+from .models import Favorite, IngredientsRecipes, Recipe
 
 User = get_user_model()
 
@@ -111,11 +111,12 @@ class RecipeWriteSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         """Валидация"""
-        if not attrs.get('ingredients'):
+        ingredients = attrs.get('ingredients')
+        if not ingredients:
             raise serializers.ValidationError(
                 {'ingredients': 'Должно быть не пустым'}
             )
-        for ingredient in attrs.get('ingredients'):
+        for ingredient in ingredients:
             if not Ingredient.objects.filter(id=ingredient['id']).exists():
                 raise ValidationError(
                     {'ingredients': 'Указан ID несуществующего ингредиента'}
@@ -124,7 +125,7 @@ class RecipeWriteSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {'tags': 'Должно быть не пустым'}
             )
-        ingredients_id = [item['id'] for item in attrs.get('ingredients')]
+        ingredients_id = [item['id'] for item in ingredients]
         unique_ingredients_id = set(ingredients_id)
         if len(unique_ingredients_id) != len(ingredients_id):
             raise ValidationError(
@@ -146,7 +147,7 @@ class RecipeWriteSerializer(serializers.ModelSerializer):
             )
         return value
 
-    def set_tags(self, tags: Tag, recipe: Recipe) -> None:
+    def set_tags(self, tags: list[Tag], recipe: Recipe) -> None:
         """Добавить рецепту теги"""
         recipe.tags.set(tags)
 
@@ -169,7 +170,21 @@ class RecipeWriteSerializer(serializers.ModelSerializer):
         """Создание рецепта"""
         ingredients = validated_data.pop('ingredients')
         tags = validated_data.pop('tags')
+        user = self.context.get('request').user
         recipe = Recipe.objects.create(**validated_data)
+        # Вылезла ошибка с сериализатором из за отсутвующих полей is_favorited
+        # is_in_shopping_cart добавил выборку объекта анотированного этими
+        # полями
+        subquery_favorites = Favorite.objects.filter(
+            recipe=models.OuterRef('pk'), user=user
+        )
+        subquery_shopping_cart = Favorite.objects.filter(
+            recipe=models.OuterRef('pk'), user=user
+        )
+        recipe = Recipe.objects.filter(id=recipe.id).annotate(
+            is_favorited=models.Exists(subquery_favorites),
+            is_in_shopping_cart=models.Exists(subquery_shopping_cart),
+        ).first()
         self.set_tags(tags, recipe)
         self.set_ingredients(ingredients, recipe)
         return recipe
@@ -204,18 +219,15 @@ class UserRecipeSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         model = self.context.get('model')
-        operation = self.context.get('operation')
-        # Хотел тут использовать конструкцию match ... case, но не пропустили
-        # тесты яндекса
-        if operation == 'create' and model.objects.filter(
-                user=attrs['user'], recipe=attrs['recipe']
-        ).exists():
+        request = self.context.get('request')
+        user_recipe_relation_exists = model.objects.filter(
+            user=attrs['user'], recipe=attrs['recipe']
+        ).exists()
+        if request.method == 'POST' and user_recipe_relation_exists:
             raise ValidationError(
                 'Такой рецепт уже есть в данном списке'
             )
-        elif operation == 'delete' and not model.objects.filter(
-                user=attrs['user'], recipe=attrs['recipe']
-        ).exists():
+        elif request.method == 'DELETE' and not user_recipe_relation_exists:
             raise ValidationError(
                 'Такого рецепта нет в данном списке'
             )

@@ -51,19 +51,15 @@ class RecipeViewSet(ModelViewSet):
         )
 
         if self.request.user.is_authenticated:
+            subquery_favorites = Favorite.objects.filter(
+                recipe=models.OuterRef('pk'), user=self.request.user
+            )
+            subquery_shopping_cart = Favorite.objects.filter(
+                recipe=models.OuterRef('pk'), user=self.request.user
+            )
             return queryset.annotate(
-                is_favorited=models.Case(
-                    models.When(favorite__user=self.request.user, then=True),
-                    default=False,
-                    output_field=models.BooleanField(),
-                ),
-                is_in_shopping_cart=models.Case(
-                    models.When(
-                        shoppingcart__user=self.request.user, then=True
-                    ),
-                    default=False,
-                    output_field=models.BooleanField(),
-                ),
+                is_favorited=models.Exists(subquery_favorites),
+                is_in_shopping_cart=models.Exists(subquery_shopping_cart),
             )
 
         return queryset.annotate(
@@ -102,7 +98,7 @@ class RecipeViewSet(ModelViewSet):
         instance_serializer = RecipeReadSerializer(instance)
         return Response(
             instance_serializer.data,
-            status=status.HTTP_200_OK
+            status=status.HTTP_200_OK,
         )
 
     def create_user_recipe_relation(
@@ -118,7 +114,7 @@ class RecipeViewSet(ModelViewSet):
 
         serializer = UserRecipeSerializer(
             data={'user': user.pk, 'recipe': recipe_pk},
-            context={'model': model, 'operation': 'create'}
+            context={'model': model, 'request': self.request}
         )
         serializer.is_valid(raise_exception=True)
         model.objects.create(user=user, recipe=recipe)
@@ -135,7 +131,7 @@ class RecipeViewSet(ModelViewSet):
 
         serializer = UserRecipeSerializer(
             data={'user': user.pk, 'recipe': recipe_pk},
-            context={'model': model, 'operation': 'delete'}
+            context={'model': model, 'request': self.request}
         )
         serializer.is_valid(raise_exception=True)
 
