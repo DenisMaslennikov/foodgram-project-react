@@ -205,19 +205,18 @@ class UserRecipeSerializer(serializers.Serializer):
     def validate(self, attrs):
         model = self.context.get('model')
         operation = self.context.get('operation')
-        match operation:
-            case 'create':
-                if model.objects.filter(
-                        user=attrs['user'], recipe=attrs['recipe']
-                ).exists():
-                    raise ValidationError(
-                        'Такой рецепт уже есть в данном списке'
-                    )
-            case 'delete':
-                if not model.objects.filter(
-                        user=attrs['user'], recipe=attrs['recipe']
-                ).exists():
-                    raise ValidationError(
-                        'Такого рецепта нет в данном списке'
-                    )
+        # Хотел тут использовать конструкцию match ... case, но не пропустили
+        # тесты яндекса
+        if operation == 'create' and model.objects.filter(
+                user=attrs['user'], recipe=attrs['recipe']
+        ).exists():
+            raise ValidationError(
+                'Такой рецепт уже есть в данном списке'
+            )
+        elif operation == 'delete' and not model.objects.filter(
+                    user=attrs['user'], recipe=attrs['recipe']
+        ).exists():
+            raise ValidationError(
+                'Такого рецепта нет в данном списке'
+            )
         return attrs

@@ -201,17 +201,16 @@ class UserSubscriptionSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         operation = self.context.get('operation')
-        match operation:
-            case 'create':
-                if attrs['user'] == attrs['sub']:
-                    raise ValidationError('Нельзя подписаться на самого себя')
-                if Sub.objects.filter(
-                        user=attrs['user'], subscription=attrs['sub']
-                ).exists():
-                    raise ValidationError('Такая подписка уже есть')
-            case 'delete':
-                if not Sub.objects.filter(
-                        user=attrs['user'], subscription=attrs['sub']
-                ).exists():
-                    raise ValidationError('Такой подписки нет')
+        # Хотел тут использовать конструкцию match ... case, но не пропустили
+        # тесты яндекса
+        if operation == 'create' and attrs['user'] == attrs['sub']:
+            raise ValidationError('Нельзя подписаться на самого себя')
+        elif operation == 'create' and Sub.objects.filter(
+                user=attrs['user'], subscription=attrs['sub']
+        ).exists():
+            raise ValidationError('Такая подписка уже есть')
+        elif operation == 'delete' and not Sub.objects.filter(
+                user=attrs['user'], subscription=attrs['sub']
+        ).exists():
+            raise ValidationError('Такой подписки нет')
         return attrs
