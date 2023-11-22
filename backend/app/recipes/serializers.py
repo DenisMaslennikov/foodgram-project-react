@@ -214,7 +214,7 @@ class UserRecipeSerializer(serializers.Serializer):
                 'Такой рецепт уже есть в данном списке'
             )
         elif operation == 'delete' and not model.objects.filter(
-                    user=attrs['user'], recipe=attrs['recipe']
+                user=attrs['user'], recipe=attrs['recipe']
         ).exists():
             raise ValidationError(
                 'Такого рецепта нет в данном списке'
