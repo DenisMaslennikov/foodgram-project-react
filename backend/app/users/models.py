@@ -4,6 +4,7 @@ from django.core.validators import RegexValidator
 from django.db import models
 
 from app.core.models import BaseModelMixin
+from foodgram_backend import constants
 
 
 class User(AbstractUser, BaseModelMixin):
@@ -12,13 +13,13 @@ class User(AbstractUser, BaseModelMixin):
         verbose_name='Почта',
         null=False,
         unique=True,
-        max_length=254,
+        max_length=constants.EMAIL_MAX_LEN,
     )
     username = models.CharField(
         verbose_name='Имя пользователя',
         unique=True,
         null=False,
-        max_length=150,
+        max_length=constants.USERNAME_MAX_LEM,
         validators=[
             RegexValidator(
                 settings.USERNAME_CHARSET,
@@ -29,12 +30,12 @@ class User(AbstractUser, BaseModelMixin):
     first_name = models.CharField(
         verbose_name='Имя',
         null=False,
-        max_length=150,
+        max_length=constants.FIRST_NAME_MAX_LEN,
     )
     last_name = models.CharField(
         verbose_name='Фамилия',
         null=False,
-        max_length=150,
+        max_length=constants.LAST_NAME_MAX_LEN,
     )
     subscriptions = models.ManyToManyField(
         to='User',
@@ -47,6 +48,14 @@ class User(AbstractUser, BaseModelMixin):
         verbose_name = 'Пользователь'
         verbose_name_plural = 'Пользователи'
         ordering = ('id',)
+        constraints = (
+            models.UniqueConstraint(
+                fields=('username',), name='unique_username'
+            ),
+            models.UniqueConstraint(
+                fields=('email',), name='unique_email'
+            ),
+        )
 
     def __str__(self) -> str:
         return self.username

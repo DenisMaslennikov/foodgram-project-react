@@ -179,7 +179,6 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.AllowAny',
     ],
     'DEFAULT_PAGINATION_CLASS': 'app.core.pagination.FoodgramPaginator',
-    'PAGE_SIZE': 2,
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.TokenAuthentication',
     ],
@@ -188,9 +187,3 @@ REST_FRAMEWORK = {
 DJOSER = {
     'LOGIN_FIELD': 'email',
 }
-
-# Настройки генерации PDF документа для корзины покупок.
-
-PDF_FONT_DIR = BASE_DIR / 'fonts'
-PDF_FONT_FILE = 'arial.ttf'
-PDF_FONT_NAME = 'Arial'

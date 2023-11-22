@@ -1,5 +1,5 @@
 from django.core.management.base import BaseCommand
-from django.db import transaction
+from django.db import IntegrityError, transaction
 
 from orjson import loads
 
@@ -19,12 +19,22 @@ class Command(BaseCommand):
         """Сохраняем в модель данные из json файла"""
         with open(options.get('path')[0], 'rb') as data:
             ingredients = loads(data.read())
+
         measurement_unit = {value['measurement_unit'] for value in ingredients}
         bulk_measurement_unit = [
             MeasurementUnit(measurement_unit=value)
             for value in measurement_unit
         ]
-        MeasurementUnit.objects.bulk_create(bulk_measurement_unit)
+
+        try:
+            MeasurementUnit.objects.bulk_create(bulk_measurement_unit)
+        except IntegrityError:
+            print(
+                'Импорт окончился ошибкой. Проверьте единицы измерения на '
+                'уникальность'
+            )
+            raise
+
         bulk_ingredients = [
             Ingredient(
                 name=value['name'],
@@ -34,4 +44,17 @@ class Command(BaseCommand):
             )
             for value in ingredients
         ]
-        Ingredient.objects.bulk_create(bulk_ingredients)
+
+        try:
+            Ingredient.objects.bulk_create(bulk_ingredients)
+        except IntegrityError:
+            print(
+                'Импорт окончился ошибкой. Проверьте ингредиенты на '
+                'уникальность'
+            )
+            raise
+
+        print(
+            f'Импорт прошел успешно добавлено {len(bulk_ingredients)} '
+            f'ингредиентов и {len(bulk_measurement_unit)} единиц измерения'
+        )

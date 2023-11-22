@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db.models import Count
 
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
@@ -12,9 +13,14 @@ from rest_framework.validators import UniqueValidator
 
 from app.recipes.models import Recipe
 
+from .models import Sub
+
 User = get_user_model()
 
 
+# Как писал вам ранее в пачке этот сериализатор находится тут во избежание
+# циклического импорта между файлами. Или необходимости ставить импорт посреди
+# файла, на что ругается flake8.
 class ShortRecipeSerializer(serializers.ModelSerializer):
     """Сериализатор короткого представления рецептов (без тегов и
     ингредиентов)"""
@@ -52,7 +58,7 @@ class UserSerializer(serializers.ModelSerializer):
 class UserWithRecipeSerializer(serializers.ModelSerializer):
     """Сериализатор для списка пользователя с указанием их рецептов"""
     recipes = serializers.SerializerMethodField(read_only=True)
-    recipes_count = serializers.SerializerMethodField(read_only=True)
+    recipes_count = serializers.IntegerField(read_only=True)
     is_subscribed = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
@@ -67,10 +73,6 @@ class UserWithRecipeSerializer(serializers.ModelSerializer):
             'recipes_count',
             'is_subscribed',
         )
-
-    def get_recipes_count(self, obj: User):
-        """Метод для заполнения поля recipes_count"""
-        return obj.recipes.count()
 
     def get_is_subscribed(self, obj: User):
         """Проверяет подписан ли авторизированный пользователь на
@@ -87,7 +89,9 @@ class UserWithRecipeSerializer(serializers.ModelSerializer):
         по количеству"""
         request = self.context.get('request')
         recipes_limit = request.query_params.get('recipes_limit')
-        recipes = obj.recipes.all()
+        recipes = obj.recipes.all().prefetch_related(
+            'tags', 'ingredients',
+        )
         if recipes_limit:
             try:
                 recipes = recipes[:int(recipes_limit)]
@@ -179,3 +183,35 @@ class PasswordSerializer(serializers.Serializer):
         instance.set_password(validated_data['new_password'])
         instance.save()
         return instance
+
+
+class UserSubscriptionSerializer(serializers.Serializer):
+    user = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all())
+
+    sub = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all().annotate(
+            recipes_count=Count('recipes')
+        ).prefetch_related('recipes',))
+
+    def to_representation(self, instance):
+        return UserWithRecipeSerializer(
+            instance['sub'], context={'request': self.context.get('request')}
+        ).data
+
+    def validate(self, attrs):
+        operation = self.context.get('operation')
+        match operation:
+            case 'create':
+                if attrs['user'] == attrs['sub']:
+                    raise ValidationError('Нельзя подписаться на самого себя')
+                if Sub.objects.filter(
+                        user=attrs['user'], subscription=attrs['sub']
+                ).exists():
+                    raise ValidationError('Такая подписка уже есть')
+            case 'delete':
+                if not Sub.objects.filter(
+                        user=attrs['user'], subscription=attrs['sub']
+                ).exists():
+                    raise ValidationError('Такой подписки нет')
+        return attrs

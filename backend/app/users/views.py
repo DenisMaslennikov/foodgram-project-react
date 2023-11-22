@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.db.models import Count
 from django.shortcuts import get_object_or_404
 
 from rest_framework import mixins, status
@@ -6,13 +7,16 @@ from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.serializers import ValidationError
+from rest_framework.views import APIView
 from rest_framework.viewsets import GenericViewSet
+
+from app.core.pagination import FoodgramPaginator
 
 from .serializers import (
     PasswordSerializer,
     UserCreateSerializer,
     UserSerializer,
+    UserSubscriptionSerializer,
     UserWithRecipeSerializer
 )
 
@@ -26,7 +30,9 @@ class UserViewSet(
     GenericViewSet
 ):
     """Всьюсет для работы с моделью пользователя"""
-    queryset = User.objects.all()
+    queryset = User.objects.all().prefetch_related(
+        'recipes', 'recipes__ingredients', 'recipes__tags'
+    )
     permission_classes = [AllowAny]
 
     def get_serializer_class(self):
@@ -61,61 +67,66 @@ class UserViewSet(
             data=request.data,
             context={'request': request}
         )
-        if serializer.is_valid(raise_exception=True):
-            serializer.save()
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
         return Response({'detail': 'Пароль изменен'})
 
-    @action(
-        detail=False,
-        url_path='subscriptions',
-        serializer_class=UserWithRecipeSerializer,
-        permission_classes=[IsAuthenticated],
-        methods=['get'],
-    )
-    def subscriptions(self, request: Request):
-        """Возращает список подписок авторизованного пользователя"""
-        query_set = self.request.user.subscriptions.all()
-        page = self.paginate_queryset(query_set)
-        serializer = self.serializer_class(
+
+class Subscribe(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request: Request, pk: int, format=None):
+        sub = get_object_or_404(User.objects.all().annotate(
+            recipes_count=Count('recipes')
+        ).prefetch_related(
+            'recipes', 'recipes__ingredients', 'recipes__tags',
+        ), pk=pk)
+
+        subscription = {
+            'sub': pk,
+            'user': request.user.pk,
+        }
+
+        serializer = UserSubscriptionSerializer(
+            data=subscription,
+            context={'request': request, 'operation': 'create'},
+        )
+        serializer.is_valid(raise_exception=True)
+        request.user.subscriptions.add(sub)
+        return Response(serializer.data, status.HTTP_201_CREATED)
+
+    def delete(self, request: Request, pk: int, format=None):
+        sub = get_object_or_404(User, pk=pk)
+
+        subscription = {
+            'sub': pk,
+            'user': request.user.pk,
+        }
+
+        serializer = UserSubscriptionSerializer(
+            data=subscription,
+            context={'operation': 'delete'},
+        )
+        serializer.is_valid(raise_exception=True)
+        request.user.subscriptions.through.objects.filter(
+            subscription=sub
+        ).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class Subscriptions(APIView, FoodgramPaginator):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request: Request, format=None):
+        query_set = request.user.subscriptions.all().annotate(
+            recipes_count=Count('recipes')
+        ).prefetch_related(
+            'recipes', 'recipes__ingredients', 'recipes__tags',
+        )
+
+        page = self.paginate_queryset(query_set, request)
+        serializer = UserWithRecipeSerializer(
             instance=page, many=True, context={'request': request}
         )
 
         return self.get_paginated_response(serializer.data)
-
-    @action(
-        detail=True,
-        url_path='subscribe',
-        serializer_class=UserWithRecipeSerializer,
-        permission_classes=[IsAuthenticated],
-        methods=['post', 'delete'],
-    )
-    def subscribe(self, request: Request, pk: int):
-        """Эндпоинт для подписки на выбранного пользователя"""
-        sub = get_object_or_404(User, pk=pk)
-
-        # Подписки делаем через модель Users
-        if request.method == 'POST':
-            if request.user.subscriptions.filter(pk=pk).exists():
-                raise ValidationError({'errors': 'Такая подписка уже есть'})
-            if sub == request.user:
-                raise ValidationError({
-                    'errors': 'Нельзя подписаться на самого себя'
-                })
-
-            request.user.subscriptions.add(sub, through_defaults=None)
-            serializer = self.serializer_class(instance=sub, context={
-                'request': request
-            })
-            return Response(serializer.data, status.HTTP_201_CREATED)
-
-        if request.method == 'DELETE':
-            if not (
-                    request.user.subscriptions.through.objects.filter(
-                        subscription=sub
-                    ).exists()
-            ):
-                raise ValidationError({'errors': 'Нет такой подписки'})
-            request.user.subscriptions.through.objects.filter(
-                subscription=sub
-            ).delete()
-            return Response(status=status.HTTP_204_NO_CONTENT)

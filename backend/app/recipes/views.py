@@ -1,9 +1,9 @@
-from io import BytesIO
-from typing import Any
+from typing import Any, Type
 
-from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.db import models, transaction
-from django.http import FileResponse, Http404
+from django.db.models import Model, QuerySet
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 
 from django_filters.rest_framework import DjangoFilterBackend
@@ -13,7 +13,6 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen.canvas import Canvas
 from rest_framework import status
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import (
     IsAuthenticated,
     IsAuthenticatedOrReadOnly
@@ -23,25 +22,54 @@ from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
 from app.users.serializers import ShortRecipeSerializer
+from foodgram_backend import constants
 
 from .filters import RecipeFilterSet
 from .models import Favorite, Recipe, ShoppingCart
 from .permissions import IsAuthorOrReadOnly
-from .serializers import RecipeReadSerializer, RecipeWriteSerializer
+from .serializers import (
+    RecipeReadSerializer,
+    RecipeWriteSerializer,
+    UserRecipeSerializer
+)
 
-PDF_INDENT = 72
-PDF_TITLE_FONT_SIZE = 15
-PDF_TEXT_FONT_SIZE = 12
-PDF_GAP = 3
+User = get_user_model()
 
 
 class RecipeViewSet(ModelViewSet):
     """Вьюсет рецептов"""
     permission_classes = [IsAuthenticatedOrReadOnly, IsAuthorOrReadOnly]
-    queryset = Recipe.objects.all()
     filter_backends = [DjangoFilterBackend]
     filterset_class = RecipeFilterSet
     http_method_names = ['patch', 'post', 'get', 'delete', 'create']
+
+    def get_queryset(self):
+        queryset = Recipe.objects.all().select_related(
+            'author'
+        ).prefetch_related(
+            'tags', 'ingredients', 'favorites', 'shopping_cart'
+        )
+
+        if self.request.user.is_authenticated:
+            return queryset.annotate(
+                is_favorited=models.Case(
+                    models.When(favorite__user=self.request.user, then=True),
+                    default=False,
+                    output_field=models.BooleanField(),
+                ),
+                is_in_shopping_cart=models.Case(
+                    models.When(
+                        shoppingcart__user=self.request.user, then=True
+                    ),
+                    default=False,
+                    output_field=models.BooleanField(),
+                ),
+            )
+
+        return queryset.annotate(
+            is_favorited=models.Value(False),
+            is_in_shopping_cart=models.Value(False),
+        )
 
     def get_serializer_class(self):
         """В зависимости от запроса возвращаем Read или Write сериализатор"""
@@ -77,6 +105,61 @@ class RecipeViewSet(ModelViewSet):
             status=status.HTTP_200_OK
         )
 
+    def create_user_recipe_relation(
+            self, model: Type[Model], user: User, recipe_pk: int
+    ) -> Response:
+        """Создает связь пользователь - рецепт в зависимости от полученной
+        модели связи (Favorites или ShoppingCart)"""
+        if not (recipe := Recipe.objects.filter(pk=recipe_pk).first()):
+            return Response(
+                {'recipe': 'Указан несуществующий рецепт'},
+                status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = UserRecipeSerializer(
+            data={'user': user.pk, 'recipe': recipe_pk},
+            context={'model': model, 'operation': 'create'}
+        )
+        serializer.is_valid(raise_exception=True)
+        model.objects.create(user=user, recipe=recipe)
+
+        return Response(serializer.data, status.HTTP_201_CREATED)
+
+    def delete_user_recipe_relation(
+            self, model: Type[Model], user: User, recipe_pk: int
+    ) -> Response:
+        """Удаляет связь пользователь - рецепт в зависимости от полученной
+        модели связи (Favorites или ShoppingCart)"""
+
+        get_object_or_404(Recipe, pk=recipe_pk)
+
+        serializer = UserRecipeSerializer(
+            data={'user': user.pk, 'recipe': recipe_pk},
+            context={'model': model, 'operation': 'delete'}
+        )
+        serializer.is_valid(raise_exception=True)
+
+        model.objects.filter(
+            user=user, recipe_id=recipe_pk
+        ).delete()
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(
+        detail=True,
+        url_path='favorite',
+        methods=['post', 'delete'],
+        serializer_class=ShortRecipeSerializer,
+        permission_classes=[IsAuthenticated]
+    )
+    @transaction.atomic
+    def favorite(self, request: Request, pk: int):
+        """Добавление/удаление избранного"""
+        if request.method == 'POST':
+            return self.create_user_recipe_relation(Favorite, request.user, pk)
+        if request.method == 'DELETE':
+            return self.delete_user_recipe_relation(Favorite, request.user, pk)
+
     @action(
         detail=True,
         url_path='shopping_cart',
@@ -87,42 +170,14 @@ class RecipeViewSet(ModelViewSet):
     @transaction.atomic
     def shopping_cart(self, request: Request, pk: int):
         """Добавление/удаление из корзины покупок"""
-        # Корзину покупок делаем через промежуточную модель
         if request.method == 'POST':
-            try:
-                recipe = get_object_or_404(Recipe, pk=pk)
-            except Http404:
-                # Тесты в постмане хотели 400 код ошибки при post запросе,
-                # а не 404
-                return Response(
-                    {'recipe': 'Указан несуществующий рецепт'},
-                    status.HTTP_400_BAD_REQUEST
-                )
-
-            if ShoppingCart.objects.filter(
-                    user=request.user, recipe=recipe
-            ).exists():
-                raise ValidationError(
-                    {'errors': 'Такой рецепт уже есть в вашей корзине'}
-                )
-            ShoppingCart.objects.create(user=request.user, recipe=recipe)
-            serializer = self.serializer_class(instance=recipe)
-            return Response(serializer.data, status.HTTP_201_CREATED)
+            return self.create_user_recipe_relation(
+                ShoppingCart, request.user, pk
+            )
         if request.method == 'DELETE':
-            # А при delete тесты хотели 404
-            recipe = get_object_or_404(Recipe, pk=pk)
-
-            if not ShoppingCart.objects.filter(
-                    user=request.user, recipe=recipe
-            ).exists():
-                raise ValidationError(
-                    {'errors': 'Такого рецепта нет в вашей корзине'}
-                )
-            ShoppingCart.objects.filter(
-                user=request.user, recipe=recipe
-            ).delete()
-
-            return Response(status=status.HTTP_204_NO_CONTENT)
+            return self.delete_user_recipe_relation(
+                ShoppingCart, request.user, pk
+            )
 
     @action(
         detail=False,
@@ -135,78 +190,40 @@ class RecipeViewSet(ModelViewSet):
         my_ingredients = ShoppingCart.objects.filter(
             user=request.user,
         ).values('recipe__ingredients').annotate(
-            total_amount=models.Sum('recipe__recipes__amount')
+            total_amount=models.Sum('recipe__recipes__amount'),
+            ingredient=models.F('recipe__ingredients__name'),
+            measurement_unit=models.F(
+                'recipe__ingredients__measurement_unit__measurement_unit'
+            ),
         ).values_list(
-            'recipe__ingredients__name',
+            'ingredient',
             'total_amount',
-            'recipe__ingredients__measurement_unit__measurement_unit'
+            'measurement_unit',
         )
-        pdfmetrics.registerFont(TTFont(
-            settings.PDF_FONT_NAME,
-            settings.PDF_FONT_DIR / settings.PDF_FONT_FILE
-        ))
-        buffer = BytesIO()
-        canvas = Canvas(buffer)
-        canvas.setFont(settings.PDF_FONT_NAME, PDF_TITLE_FONT_SIZE)
-        canvas.drawCentredString(
-            A4[0] / 2, A4[1] - PDF_INDENT, 'Список покупок:'
-        )
-        canvas.setFont(settings.PDF_FONT_NAME, PDF_TEXT_FONT_SIZE)
-        for index, ingredient in enumerate(my_ingredients):
-            canvas.drawString(
-                PDF_INDENT,
-                A4[1] - PDF_INDENT - (PDF_TEXT_FONT_SIZE + PDF_GAP)
-                * (index + 1), (
-                    f'{ingredient[0]} {ingredient[1]} {ingredient[2]}'
-                ))
-        canvas.save()
-        buffer.seek(0)
+        return generate_pdf_response(my_ingredients)
 
-        return FileResponse(
-            buffer,
-            as_attachment=True,
-            filename='shopping_cart.pdf',
-        )
 
-    @action(
-        detail=True,
-        url_path='favorite',
-        methods=['post', 'delete'],
-        serializer_class=ShortRecipeSerializer,
-        permission_classes=[IsAuthenticated]
+def generate_pdf_response(ingredients: QuerySet) -> HttpResponse:
+    pdfmetrics.registerFont(TTFont(
+        constants.PDF_FONT_NAME,
+        constants.PDF_FONT_DIR / constants.PDF_FONT_FILE
+    ))
+    buffer = HttpResponse(content_type='application/pdf')
+    buffer['Content-Disposition'] = 'attachment; filename="file.pdf"'
+    canvas = Canvas(buffer)
+    canvas.setFont(constants.PDF_FONT_NAME, constants.PDF_TITLE_FONT_SIZE)
+    canvas.drawCentredString(
+        A4[0] / 2, A4[1] - constants.PDF_INDENT, 'Список покупок:'
     )
-    @transaction.atomic
-    def favorite(self, request: Request, pk: int):
-        """Добавление/удаление избранного"""
-        # Избранное делаем через модель Recipe
-        if request.method == 'POST':
-            try:
-                recipe = get_object_or_404(Recipe, pk=pk)
-            except Http404:
-                # Тесты в постмане хотели 400 код ошибки при post запросе,
-                # а не 404
-                return Response(
-                    {'recipe': 'Указан несуществующий рецепт'},
-                    status.HTTP_400_BAD_REQUEST
-                )
-
-            if recipe.favorite_set.filter(user=request.user):
-                raise ValidationError(
-                    {'errors': 'Такой рецепт уже есть в вашем избраном'}
-                )
-            favorite = Favorite(user=request.user, recipe=recipe)
-            favorite.save()
-            recipe.favorite_set.add(favorite)
-            serializer = self.serializer_class(instance=recipe)
-            return Response(serializer.data, status.HTTP_201_CREATED)
-        if request.method == 'DELETE':
-            # А при delete тесты хотели 404
-            recipe = get_object_or_404(Recipe, pk=pk)
-
-            if not recipe.favorite_set.filter(user=request.user).exists():
-                raise ValidationError(
-                    {'errors': 'Такого рецепта нет в вашем избранном'}
-                )
-            recipe.favorite_set.filter(user=request.user).delete()
-
-            return Response(status=status.HTTP_204_NO_CONTENT)
+    canvas.setFont(constants.PDF_FONT_NAME, constants.PDF_TEXT_FONT_SIZE)
+    for index, ingredient in enumerate(ingredients):
+        canvas.drawString(
+            constants.PDF_INDENT,
+            A4[1] - constants.PDF_INDENT - (
+                constants.PDF_TEXT_FONT_SIZE + constants.PDF_GAP
+            )
+            * (index + 1), (
+                f'{ingredient[0]} {ingredient[1]} {ingredient[2]}'
+            ))
+    canvas.save()
+    return buffer

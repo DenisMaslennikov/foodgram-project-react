@@ -3,6 +3,7 @@ import imghdr
 import uuid
 from typing import Any
 
+from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.db import transaction
 
@@ -12,9 +13,12 @@ from rest_framework.exceptions import ValidationError
 from app.ingredients.models import Ingredient
 from app.tags.models import Tag
 from app.tags.serializers import TagSerializer
-from app.users.serializers import UserSerializer
+from app.users.serializers import ShortRecipeSerializer, UserSerializer
+from foodgram_backend.constants import MIN_COOKING_TIME, MIN_INGREDIENT_AMOUNT
 
 from .models import IngredientsRecipes, Recipe
+
+User = get_user_model()
 
 
 class Base64ImageField(serializers.FileField):
@@ -70,8 +74,10 @@ class IngredientsRecipesWriteSerializer(serializers.ModelSerializer):
 
     def validate_amount(self, value: int):
         """Валидация поля количество"""
-        if value < 1:
-            raise serializers.ValidationError('должно быть 1 или больше')
+        if value < MIN_INGREDIENT_AMOUNT:
+            raise serializers.ValidationError(
+                f'должно быть {MIN_INGREDIENT_AMOUNT} или больше'
+            )
         return value
 
 
@@ -80,30 +86,12 @@ class RecipeReadSerializer(serializers.ModelSerializer):
     author = UserSerializer(many=False, read_only=True)
     tags = TagSerializer(many=True)
     ingredients = IngredientRecipeReadSerializer(source='recipes', many=True)
-    is_favorited = serializers.SerializerMethodField(read_only=True)
-    is_in_shopping_cart = serializers.SerializerMethodField(read_only=True)
+    is_favorited = serializers.BooleanField()
+    is_in_shopping_cart = serializers.BooleanField()
 
     class Meta:
         model = Recipe
         exclude = ('created', 'modified', 'shopping_cart', 'favorites')
-
-    def get_is_favorited(self, obj: Recipe) -> bool:
-        """Булево поле отображающее помещен ли рецепт в избранное"""
-        request = self.context.get('request')
-        if request and request.user.is_authenticated:
-            return (
-                request.user.favorites.filter(id=obj.id).exists()
-            )
-        return False
-
-    def get_is_in_shopping_cart(self, obj: Recipe) -> bool:
-        """Булево поле отображающее помещен ли рецепт в корзину"""
-        request = self.context.get('request')
-        if request and request.user.is_authenticated:
-            return (
-                request.user.shopping_cart.filter(id=obj.id).exists()
-            )
-        return False
 
 
 class RecipeWriteSerializer(serializers.ModelSerializer):
@@ -152,9 +140,9 @@ class RecipeWriteSerializer(serializers.ModelSerializer):
 
     def validate_cooking_time(self, value: int) -> int:
         """Валидация времени готовки"""
-        if value < 1:
+        if value < MIN_COOKING_TIME:
             raise ValidationError(
-                'Время готовки не может быть меньше 1 минуты'
+                f'Время готовки не может быть меньше {MIN_COOKING_TIME} минуты'
             )
         return value
 
@@ -205,3 +193,31 @@ class RecipeWriteSerializer(serializers.ModelSerializer):
 
         instance.save()
         return instance
+
+
+class UserRecipeSerializer(serializers.Serializer):
+    user = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
+    recipe = serializers.PrimaryKeyRelatedField(queryset=Recipe.objects.all())
+
+    def to_representation(self, instance):
+        return ShortRecipeSerializer(instance=instance['recipe']).data
+
+    def validate(self, attrs):
+        model = self.context.get('model')
+        operation = self.context.get('operation')
+        match operation:
+            case 'create':
+                if model.objects.filter(
+                        user=attrs['user'], recipe=attrs['recipe']
+                ).exists():
+                    raise ValidationError(
+                        'Такой рецепт уже есть в данном списке'
+                    )
+            case 'delete':
+                if not model.objects.filter(
+                        user=attrs['user'], recipe=attrs['recipe']
+                ).exists():
+                    raise ValidationError(
+                        'Такого рецепта нет в данном списке'
+                    )
+        return attrs
