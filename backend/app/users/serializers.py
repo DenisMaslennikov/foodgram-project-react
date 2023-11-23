@@ -18,9 +18,6 @@ from .models import Sub
 User = get_user_model()
 
 
-# Как писал вам ранее в пачке этот сериализатор находится тут во избежание
-# циклического импорта между файлами. Или необходимости ставить импорт посреди
-# файла, на что ругается flake8.
 class ShortRecipeSerializer(serializers.ModelSerializer):
     """Сериализатор короткого представления рецептов (без тегов и
     ингредиентов)"""
@@ -201,8 +198,6 @@ class UserSubscriptionSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         operation = self.context.get('operation')
-        # Хотел тут использовать конструкцию match ... case, но не пропустили
-        # тесты яндекса
         if operation == 'create' and attrs['user'] == attrs['sub']:
             raise ValidationError('Нельзя подписаться на самого себя')
         elif operation == 'create' and Sub.objects.filter(

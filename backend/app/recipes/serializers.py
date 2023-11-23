@@ -172,9 +172,6 @@ class RecipeWriteSerializer(serializers.ModelSerializer):
         tags = validated_data.pop('tags')
         user = self.context.get('request').user
         recipe = Recipe.objects.create(**validated_data)
-        # Вылезла ошибка с сериализатором из за отсутвующих полей is_favorited
-        # is_in_shopping_cart добавил выборку объекта анотированного этими
-        # полями
         subquery_favorites = Favorite.objects.filter(
             recipe=models.OuterRef('pk'), user=user
         )
