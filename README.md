@@ -15,18 +15,18 @@ https://foodgram-diplom.ddns.net/
 ## Запуск проекта локально
 1 Склонируйте репозиторий
 ```commandline
-git@github.com:DenisMaslennikov/foodgram-project-react.git
+git clone https://github.com/DenisMaslennikov/foodgram-project-react.git
 ```
 2.1 Для запуска development версии используйте команду
 ```commandline
-docker compose up --build
+docker compose up
 ```
 2.2 Для запуска production версии используйте команду
 ```commandline
 docker compose -f docker-compose.production.yml up
 ```
 ## Стек технологий:
-Python, Django, Docker, Git, django-filters, sorl-thumbnail
+Python, Django, Docker, django-filters, sorl-thumbnail
 
 ## Примеры запросов к API
 1) Регистрация:
